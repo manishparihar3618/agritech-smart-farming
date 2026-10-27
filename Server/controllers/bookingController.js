@@ -1,4 +1,8 @@
+const mongoose = require("mongoose");
 const Booking = require("../models/Booking");
+const { demoStore, generateId } = require("../demoStore");
+
+const isDbConnected = () => mongoose.connection.readyState === 1;
 
 const createBooking = async (req, res) => {
     try {
@@ -11,15 +15,33 @@ const createBooking = async (req, res) => {
             });
         }
 
-        const booking = await Booking.create({
-            ...req.body,
-            user: req.user._id,
-        });
+        if (isDbConnected()) {
+            const booking = await Booking.create({
+                ...req.body,
+                user: req.user._id,
+            });
 
-        res.status(201).json({
+            return res.status(201).json({
+                success: true,
+                message: "Booking created successfully",
+                booking,
+            });
+        }
+
+        const newBooking = {
+            _id: generateId("book_"),
+            ...req.body,
+            status: "pending",
+            user: String(req.user._id || req.user.id),
+            createdAt: new Date().toISOString(),
+        };
+        newBooking.id = newBooking._id;
+        demoStore.bookings.unshift(newBooking);
+
+        return res.status(201).json({
             success: true,
             message: "Booking created successfully",
-            booking,
+            booking: newBooking,
         });
     } catch (error) {
         res.status(400).json({
@@ -31,14 +53,26 @@ const createBooking = async (req, res) => {
 
 const getBookings = async (req, res) => {
     try {
-        const bookings = await Booking.find({
-            user: req.user._id,
-        }).populate("farm", "name");
+        if (isDbConnected()) {
+            const bookings = await Booking.find({
+                user: req.user._id,
+            }).populate("farm", "name");
+
+            return res.json({
+                success: true,
+                count: bookings.length,
+                bookings,
+            });
+        }
+
+        const userBookings = demoStore.bookings.filter(
+            (b) => String(b.user) === String(req.user._id || req.user.id)
+        );
 
         res.json({
             success: true,
-            count: bookings.length,
-            bookings,
+            count: userBookings.length,
+            bookings: userBookings,
         });
     } catch (error) {
         res.status(500).json({
@@ -50,23 +84,45 @@ const getBookings = async (req, res) => {
 
 const updateBooking = async (req, res) => {
     try {
-        const booking = await Booking.findOneAndUpdate(
-            { _id: req.params.id, user: req.user._id },
-            req.body,
-            { new: true, runValidators: true }
+        if (isDbConnected()) {
+            const booking = await Booking.findOneAndUpdate(
+                { _id: req.params.id, user: req.user._id },
+                req.body,
+                { new: true, runValidators: true }
+            );
+
+            if (!booking) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Booking not found",
+                });
+            }
+
+            return res.json({
+                success: true,
+                message: "Booking updated successfully",
+                booking,
+            });
+        }
+
+        const index = demoStore.bookings.findIndex(
+            (b) =>
+                (b._id === req.params.id || b.id === req.params.id) &&
+                String(b.user) === String(req.user._id || req.user.id)
         );
 
-        if (!booking) {
+        if (index === -1) {
             return res.status(404).json({
                 success: false,
                 message: "Booking not found",
             });
         }
 
+        demoStore.bookings[index] = { ...demoStore.bookings[index], ...req.body };
         res.json({
             success: true,
             message: "Booking updated successfully",
-            booking,
+            booking: demoStore.bookings[index],
         });
     } catch (error) {
         res.status(400).json({
@@ -78,12 +134,35 @@ const updateBooking = async (req, res) => {
 
 const deleteBooking = async (req, res) => {
     try {
-        const booking = await Booking.findOneAndDelete({
-            _id: req.params.id,
-            user: req.user._id,
-        });
+        if (isDbConnected()) {
+            const booking = await Booking.findOneAndDelete({
+                _id: req.params.id,
+                user: req.user._id,
+            });
 
-        if (!booking) {
+            if (!booking) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Booking not found",
+                });
+            }
+
+            return res.json({
+                success: true,
+                message: "Booking deleted successfully",
+            });
+        }
+
+        const initialLen = demoStore.bookings.length;
+        demoStore.bookings = demoStore.bookings.filter(
+            (b) =>
+                !(
+                    (b._id === req.params.id || b.id === req.params.id) &&
+                    String(b.user) === String(req.user._id || req.user.id)
+                )
+        );
+
+        if (demoStore.bookings.length === initialLen) {
             return res.status(404).json({
                 success: false,
                 message: "Booking not found",
