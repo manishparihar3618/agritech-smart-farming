@@ -35,7 +35,6 @@ const registerUser = async (req, res) => {
         message: "Password must be at least 8 characters long"
       });
     }
-
     const cleanEmail = email.toLowerCase().trim();
 
     // Check in-memory store first
